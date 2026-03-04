@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Teleprompter — Master</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            surface: '#0f0f11',
+            panel:   '#18181b',
+            border:  '#2e2e33',
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    /* Custom scrollbar */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 3px; }
+
+    /* Keyline overlay — 4-sided box centred in the preview panel.
+       Width and left offset are set dynamically by JS to match iPhone aspect ratio. */
+    #keyline {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      pointer-events: none;
+      background: rgba(251, 191, 36, 0.07);
+      border: 2px solid rgba(251, 191, 36, 0.55);
+      border-radius: 4px;
+      transition: height 0.15s linear, width 0.15s linear, left 0.15s linear;
+      z-index: 20;
+    }
+
+    /* Script preview text */
+    #script-preview {
+      word-break: break-word;
+      line-height: 1.75;
+      font-size: 1rem;
+      font-family: 'Georgia', serif;
+      color: #e4e4e7;
+    }
+    #script-preview p   { margin-bottom: 0.75em; }
+    #script-preview strong { color: #fff; font-weight: 700; }
+    #script-preview em     { color: #fcd34d; font-style: italic; }
+    #script-preview mark   { background: rgba(251,191,36,0.25); color: #fff; border-radius: 3px; padding: 0 3px; }
+    #script-preview code   { font-family: monospace; font-size: 0.9em; color: #f87171; background: rgba(248,113,113,0.1); border-radius: 3px; padding: 0 4px; }
+    #script-preview .tp-h1 { font-size: 1.4em; font-weight: 700; color: #fbbf24; margin: 1em 0 0.4em; line-height: 1.3; }
+    #script-preview .tp-h2 { font-size: 1.2em; font-weight: 600; color: #d4d4d8; margin: 0.9em 0 0.3em; line-height: 1.3; }
+    #script-preview .tp-h3 { font-size: 1.05em; font-weight: 600; color: #a1a1aa; margin: 0.8em 0 0.25em; line-height: 1.3; }
+  </style>
+</head>
+<body class="bg-[#0f0f11] text-zinc-100 h-screen overflow-hidden flex flex-col">
+
+  <!-- Header -->
+  <header class="flex items-center justify-between px-6 py-4 bg-[#18181b] border-b border-[#2e2e33]">
+    <div class="flex items-center gap-3">
+      <svg class="w-6 h-6 text-amber-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M15 10l4.553-2.07A1 1 0 0121 8.845v6.31a1 1 0 01-1.447.894L15 14M3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z" />
+      </svg>
+      <h1 class="text-lg font-semibold tracking-tight">Teleprompter <span class="text-zinc-500 text-sm font-normal ml-1">Master</span></h1>
+    </div>
+    <div class="flex items-center gap-2">
+      <span id="conn-badge" class="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-zinc-800 text-zinc-400">
+        <span id="conn-dot" class="w-1.5 h-1.5 rounded-full bg-zinc-500"></span>
+        <span id="conn-label">Connecting…</span>
+      </span>
+      <a href="/slave" target="_blank" class="text-xs px-3 py-1.5 rounded-md bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-colors">
+        Open Slave ↗
+      </a>
+    </div>
+  </header>
+
+  <!-- Main layout -->
+  <div class="flex flex-1 overflow-hidden">
+
+    <!-- Left panel: Script input + controls -->
+    <aside class="w-80 flex flex-col bg-[#18181b] border-r border-[#2e2e33] shrink-0">
+
+      <!-- Script textarea -->
+      <div class="flex flex-col flex-1 p-4 gap-3 overflow-hidden">
+        <label class="text-xs font-medium text-zinc-400 uppercase tracking-wider">Script</label>
+        <textarea
+          id="script-input"
+          placeholder="Paste or type your script here…"
+          class="flex-1 resize-none bg-[#0f0f11] text-zinc-200 text-sm leading-relaxed rounded-lg p-3 border border-[#2e2e33] focus:outline-none focus:border-amber-500/50 placeholder-zinc-600 font-mono"
+        ></textarea>
+        <button
+          id="load-btn"
+          class="w-full py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-semibold text-sm transition-colors"
+        >
+          Load Script →
+        </button>
+      </div>
+
+      <!-- Divider -->
+      <div class="border-t border-[#2e2e33]"></div>
+
+      <!-- Playback controls -->
+      <div class="p-4 flex flex-col gap-4">
+        <label class="text-xs font-medium text-zinc-400 uppercase tracking-wider">Playback</label>
+
+        <!-- Play / Pause / Reset row -->
+        <div class="flex gap-2">
+          <button id="play-btn"  class="flex-1 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-sm transition-colors">▶ Play</button>
+          <button id="pause-btn" class="flex-1 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-white font-semibold text-sm transition-colors">⏸ Pause</button>
+          <button id="reset-btn" class="py-2 px-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-white text-sm transition-colors">↩</button>
+        </div>
+
+        <!-- Speed slider -->
+        <div class="flex flex-col gap-1.5">
+          <div class="flex justify-between text-xs text-zinc-400">
+            <span>Speed</span>
+            <span id="speed-label" class="text-amber-400 font-medium">60 px/s</span>
+          </div>
+          <input
+            id="speed-slider"
+            type="range"
+            min="5"
+            max="300"
+            value="60"
+            step="5"
+            class="w-full accent-amber-400 cursor-pointer"
+          />
+          <div class="flex justify-between text-[10px] text-zinc-600">
+            <span>Slow</span>
+            <span>Fast</span>
+          </div>
+        </div>
+
+        <!-- Slave status -->
+        <div class="bg-[#0f0f11] rounded-lg p-3 border border-[#2e2e33]">
+          <p class="text-[10px] text-zinc-500 uppercase tracking-wider mb-1.5">Slave Status</p>
+          <div class="flex items-center gap-2">
+            <span id="slave-dot" class="w-2 h-2 rounded-full bg-zinc-600 shrink-0"></span>
+            <span id="slave-status" class="text-xs text-zinc-400">No slave connected</span>
+          </div>
+          <p id="slave-progress" class="text-xs text-zinc-500 mt-1 hidden"></p>
+        </div>
+
+        <!-- Keyboard shortcuts -->
+        <div class="bg-[#0f0f11] rounded-lg p-3 border border-[#2e2e33]">
+          <p class="text-[10px] text-zinc-500 uppercase tracking-wider mb-2">Keyboard</p>
+          <table class="w-full text-xs border-separate" style="border-spacing:0 4px;">
+            <tbody>
+              <tr>
+                <td class="pr-2"><kbd class="bg-zinc-800 text-zinc-300 rounded px-1.5 py-0.5 font-mono text-[10px] whitespace-nowrap">Space</kbd></td>
+                <td class="text-zinc-400">Hold to pause, release to resume</td>
+              </tr>
+              <tr>
+                <td class="pr-2"><kbd class="bg-zinc-800 text-zinc-300 rounded px-1.5 py-0.5 font-mono text-[10px]">↑</kbd> <kbd class="bg-zinc-800 text-zinc-300 rounded px-1.5 py-0.5 font-mono text-[10px]">↓</kbd></td>
+                <td class="text-zinc-400">Seek back / forward one line</td>
+              </tr>
+              <tr>
+                <td class="pr-2"><kbd class="bg-zinc-800 text-zinc-300 rounded px-1.5 py-0.5 font-mono text-[10px]">←</kbd> <kbd class="bg-zinc-800 text-zinc-300 rounded px-1.5 py-0.5 font-mono text-[10px]">→</kbd></td>
+                <td class="text-zinc-400">Speed down / up</td>
+              </tr>
+              <tr>
+                <td class="pr-2"><kbd class="bg-zinc-800 text-zinc-300 rounded px-1.5 py-0.5 font-mono text-[10px]">R</kbd></td>
+                <td class="text-zinc-400">Reset to start</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </aside>
+
+    <!-- Right panel: Script preview + keyline -->
+    <main class="flex-1 flex flex-col overflow-hidden">
+
+      <div class="px-6 py-3 border-b border-[#2e2e33] flex items-center justify-between">
+        <span class="text-xs text-zinc-500">Script Preview</span>
+        <span class="text-xs text-zinc-600">Amber box = slave viewport</span>
+      </div>
+
+      <!-- Preview panel: relative container so keyline can sit fixed at centre -->
+      <div class="flex-1 overflow-hidden relative">
+
+        <!-- Keyline — centred vertically in this panel, sits above scrolling text -->
+        <div id="keyline" style="display:none;"></div>
+
+        <!-- Edge fades so text softly disappears at top/bottom -->
+        <div class="absolute top-0 left-0 right-0 h-14 pointer-events-none z-10" style="background:linear-gradient(to bottom,#0f0f11 0%,transparent 100%);"></div>
+        <div class="absolute bottom-0 left-0 right-0 h-14 pointer-events-none z-10" style="background:linear-gradient(to top,#0f0f11 0%,transparent 100%);"></div>
+
+        <!-- Scrollable text — auto-scrolled by JS to follow slave -->
+        <div id="preview-scroll" class="h-full overflow-y-auto">
+          <div id="script-preview" class="max-w-2xl mx-auto">
+            <p class="text-zinc-600 italic">Load a script to see the preview…</p>
+          </div>
+        </div>
+
+      </div>
+
+    </main>
+  </div>
+
+  <script src="/md.js"></script>
+  <script src="/master.js"></script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+name = "teleprompter"
+main = "src/worker.js"
+compatibility_date = "2024-09-23"
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+[[durable_objects.bindings]]
+name = "TELEPROMPTER_SESSION"
+class_name = "TeleprompterSession"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["TeleprompterSession"]
