@@ -2,9 +2,20 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
+  <!--
+    viewport-fit=cover ensures content extends into notch/Dynamic Island edges on iOS.
+    On Android, this allows the content to use the full screen including cutouts.
+  -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+
+  <!-- iOS: enable full-screen standalone mode when added to the home screen -->
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+  <!-- Android: match the browser/status bar colour to the black background -->
+  <meta name="theme-color" content="#000000" />
+  <meta name="mobile-web-app-capable" content="yes" />
+
   <title>Teleprompter</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
@@ -17,29 +28,32 @@
 
     /* Teleprompter scroll container */
     #scroll-container {
-      height: 100dvh;
+      height: 100dvh;               /* dynamic viewport height — avoids mobile browser chrome */
       overflow-y: scroll;
       scroll-behavior: auto;
       -webkit-overflow-scrolling: touch;
-      /* Hide scrollbar visually */
-      scrollbar-width: none;
+      scrollbar-width: none;        /* Firefox */
     }
     #scroll-container::-webkit-scrollbar { display: none; }
 
-    /* Script text */
+    /* Script text — fluid font size scales with screen width */
     #script-text {
       font-family: 'Georgia', 'Times New Roman', serif;
       font-size: clamp(1.5rem, 5vw, 2.25rem);
       line-height: 1.8;
       color: #ffffff;
       word-break: break-word;
-      /* Top/bottom padding so first/last lines can scroll to centre */
+      /*
+        Top/bottom padding keeps the first and last lines centred in the viewport
+        at the start/end of the scroll range. This mirrors the controller's 50vh
+        padding trick so the keyline overlay aligns perfectly.
+      */
       padding: 50vh 2rem;
       max-width: 700px;
       margin: 0 auto;
     }
 
-    /* Fade edges */
+    /* Fade edges — softens text as it approaches the top and bottom of the screen */
     #fade-top,
     #fade-bottom {
       position: fixed;
@@ -52,7 +66,7 @@
     #fade-top    { top: 0;    background: linear-gradient(to bottom, #000 0%, transparent 100%); }
     #fade-bottom { bottom: 0; background: linear-gradient(to top,    #000 0%, transparent 100%); }
 
-    /* Start overlay */
+    /* Start overlay — shown until the user taps "Begin Prompting" */
     #start-overlay {
       position: fixed;
       inset: 0;
@@ -66,17 +80,24 @@
       padding: 2rem;
     }
 
-    /* Markdown styles for teleprompter text */
+    /* ── Markdown styles for teleprompter script text ─────────────────────── */
     #script-text p      { margin-bottom: 0.6em; }
     #script-text strong { color: #ffffff; font-weight: 800; }
     #script-text em     { color: #fcd34d; font-style: italic; }
-    #script-text mark   { background: rgba(251,191,36,0.3); color: #fff; border-radius: 4px; padding: 0 5px; -webkit-box-decoration-break: clone; }
+    #script-text mark   {
+      background: rgba(251,191,36,0.3);
+      color: #fff;
+      border-radius: 4px;
+      padding: 0 5px;
+      -webkit-box-decoration-break: clone; /* preserve highlight when it wraps across lines */
+              box-decoration-break: clone;
+    }
     #script-text code   { font-family: monospace; color: #f87171; font-size: 0.85em; }
-    #script-text .tp-h1 { font-size: 1.5em; font-weight: 800; color: #fbbf24; margin: 0.6em 0 0.3em; line-height: 1.2; }
+    #script-text .tp-h1 { font-size: 1.5em;  font-weight: 800; color: #fbbf24; margin: 0.6em 0 0.3em;  line-height: 1.2; }
     #script-text .tp-h2 { font-size: 1.25em; font-weight: 700; color: #e4e4e7; margin: 0.5em 0 0.25em; line-height: 1.2; }
-    #script-text .tp-h3 { font-size: 1.1em; font-weight: 600; color: #a1a1aa; margin: 0.4em 0 0.2em; line-height: 1.2; }
+    #script-text .tp-h3 { font-size: 1.1em;  font-weight: 600; color: #a1a1aa; margin: 0.4em 0 0.2em;  line-height: 1.2; }
 
-    /* Wake lock status dot */
+    /* Wake lock status indicator — small dot in the top-right corner */
     #wake-status {
       position: fixed;
       top: max(1rem, env(safe-area-inset-top));
@@ -97,15 +118,24 @@
 </head>
 <body>
 
-  <!-- Start overlay (requires tap to begin) -->
+  <!--
+    Start overlay — the tap-to-begin screen shown on first load.
+    A user gesture is required before we can:
+      1. Acquire a screen wake lock
+      2. Start the NoSleep.js video (for older browser fallback)
+      3. Initiate the WebSocket connection
+  -->
   <div id="start-overlay">
     <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="rgba(251,191,36,0.8)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
       <path d="M15 10l4.553-2.07A1 1 0 0121 8.845v6.31a1 1 0 01-1.447.894L15 14M3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z" />
     </svg>
+
     <h1 style="font-size:1.5rem;font-weight:600;letter-spacing:-0.02em;color:#fff;">Teleprompter</h1>
+
     <p style="font-size:0.85rem;color:#71717a;text-align:center;max-width:280px;line-height:1.6;">
       Tap the button below to connect and keep the screen awake while prompting.
     </p>
+
     <button
       id="start-btn"
       style="margin-top:0.5rem;padding:1rem 2.5rem;font-size:1.1rem;font-weight:700;border-radius:999px;background:#fbbf24;color:#000;border:none;cursor:pointer;letter-spacing:0.01em;"
@@ -114,7 +144,7 @@
       Begin Prompting
     </button>
 
-    <!-- Fullscreen button — shown unless already in standalone/fullscreen -->
+    <!-- Fullscreen button — hidden automatically if already in standalone/fullscreen mode -->
     <button
       id="fullscreen-btn"
       style="padding:0.6rem 1.4rem;font-size:0.8rem;font-weight:600;border-radius:999px;background:transparent;color:#71717a;border:1px solid #3f3f46;cursor:pointer;display:flex;align-items:center;gap:0.4rem;"
@@ -125,34 +155,35 @@
       Full Screen
     </button>
 
-    <!-- Add-to-home-screen tip (shown as fallback) -->
-    <p id="fullscreen-tip" style="font-size:0.72rem;color:#52525b;text-align:center;max-width:260px;line-height:1.7;display:none;">
-      📲 For true full screen on iPhone:<br>
-      tap <strong style="color:#a1a1aa;">Share</strong> → <strong style="color:#a1a1aa;">Add to Home Screen</strong>,<br>then open from your home screen.
-    </p>
+    <!--
+      Add-to-home-screen tip — shown as a fallback when the Fullscreen API is
+      unavailable (e.g. iOS Safari in-browser). Text is set dynamically by
+      display.js based on the detected platform.
+    -->
+    <p id="fullscreen-tip" style="font-size:0.72rem;color:#52525b;text-align:center;max-width:260px;line-height:1.7;display:none;"></p>
 
     <p id="waiting-msg" style="font-size:0.75rem;color:#52525b;display:none;">
-      Waiting for script from master…
+      Waiting for script from controller…
     </p>
   </div>
 
-  <!-- Wake lock status indicator -->
+  <!-- Wake lock status indicator (top-right) -->
   <div id="wake-status">
     <span id="wake-dot"></span>
     <span id="wake-label">Screen lock</span>
   </div>
 
-  <!-- Fade overlays -->
+  <!-- Top and bottom fade overlays -->
   <div id="fade-top"></div>
   <div id="fade-bottom"></div>
 
-  <!-- Scroll container -->
+  <!-- Scrollable script container — auto-scrolled by the display.js engine -->
   <div id="scroll-container">
     <div id="script-text">Waiting for script…</div>
   </div>
 
   <script src="/nosleep.js"></script>
   <script src="/md.js"></script>
-  <script src="/slave.js"></script>
+  <script src="/display.js"></script>
 </body>
 </html>

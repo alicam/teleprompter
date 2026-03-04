@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Teleprompter — Master</title>
+  <title>Teleprompter — Controller</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -24,8 +24,12 @@
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 3px; }
 
-    /* Keyline overlay — 4-sided box centred in the preview panel.
-       Width and left offset are set dynamically by JS to match iPhone aspect ratio. */
+    /*
+      Keyline overlay — a 4-sided box centred in the preview panel that
+      represents the viewport currently visible on the display device.
+      Width, height, and left offset are computed dynamically by controller.js
+      using font metrics reported by the display.
+    */
     #keyline {
       position: absolute;
       top: 50%;
@@ -46,13 +50,13 @@
       font-family: 'Georgia', serif;
       color: #e4e4e7;
     }
-    #script-preview p   { margin-bottom: 0.75em; }
+    #script-preview p      { margin-bottom: 0.75em; }
     #script-preview strong { color: #fff; font-weight: 700; }
     #script-preview em     { color: #fcd34d; font-style: italic; }
     #script-preview mark   { background: rgba(251,191,36,0.25); color: #fff; border-radius: 3px; padding: 0 3px; }
     #script-preview code   { font-family: monospace; font-size: 0.9em; color: #f87171; background: rgba(248,113,113,0.1); border-radius: 3px; padding: 0 4px; }
-    #script-preview .tp-h1 { font-size: 1.4em; font-weight: 700; color: #fbbf24; margin: 1em 0 0.4em; line-height: 1.3; }
-    #script-preview .tp-h2 { font-size: 1.2em; font-weight: 600; color: #d4d4d8; margin: 0.9em 0 0.3em; line-height: 1.3; }
+    #script-preview .tp-h1 { font-size: 1.4em;  font-weight: 700; color: #fbbf24; margin: 1em 0 0.4em;  line-height: 1.3; }
+    #script-preview .tp-h2 { font-size: 1.2em;  font-weight: 600; color: #d4d4d8; margin: 0.9em 0 0.3em; line-height: 1.3; }
     #script-preview .tp-h3 { font-size: 1.05em; font-weight: 600; color: #a1a1aa; margin: 0.8em 0 0.25em; line-height: 1.3; }
   </style>
 </head>
@@ -64,15 +68,15 @@
       <svg class="w-6 h-6 text-amber-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" d="M15 10l4.553-2.07A1 1 0 0121 8.845v6.31a1 1 0 01-1.447.894L15 14M3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z" />
       </svg>
-      <h1 class="text-lg font-semibold tracking-tight">Teleprompter <span class="text-zinc-500 text-sm font-normal ml-1">Master</span></h1>
+      <h1 class="text-lg font-semibold tracking-tight">Teleprompter <span class="text-zinc-500 text-sm font-normal ml-1">Controller</span></h1>
     </div>
     <div class="flex items-center gap-2">
       <span id="conn-badge" class="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-zinc-800 text-zinc-400">
         <span id="conn-dot" class="w-1.5 h-1.5 rounded-full bg-zinc-500"></span>
         <span id="conn-label">Connecting…</span>
       </span>
-      <a href="/slave" target="_blank" class="text-xs px-3 py-1.5 rounded-md bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-colors">
-        Open Slave ↗
+      <a href="/display" target="_blank" class="text-xs px-3 py-1.5 rounded-md bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-colors">
+        Open Display ↗
       </a>
     </div>
   </header>
@@ -134,14 +138,14 @@
           </div>
         </div>
 
-        <!-- Slave status -->
+        <!-- Display status -->
         <div class="bg-[#0f0f11] rounded-lg p-3 border border-[#2e2e33]">
-          <p class="text-[10px] text-zinc-500 uppercase tracking-wider mb-1.5">Slave Status</p>
+          <p class="text-[10px] text-zinc-500 uppercase tracking-wider mb-1.5">Display Status</p>
           <div class="flex items-center gap-2">
-            <span id="slave-dot" class="w-2 h-2 rounded-full bg-zinc-600 shrink-0"></span>
-            <span id="slave-status" class="text-xs text-zinc-400">No slave connected</span>
+            <span id="display-dot" class="w-2 h-2 rounded-full bg-zinc-600 shrink-0"></span>
+            <span id="display-status" class="text-xs text-zinc-400">No display connected</span>
           </div>
-          <p id="slave-progress" class="text-xs text-zinc-500 mt-1 hidden"></p>
+          <p id="display-progress" class="text-xs text-zinc-500 mt-1 hidden"></p>
         </div>
 
         <!-- Keyboard shortcuts -->
@@ -177,20 +181,20 @@
 
       <div class="px-6 py-3 border-b border-[#2e2e33] flex items-center justify-between">
         <span class="text-xs text-zinc-500">Script Preview</span>
-        <span class="text-xs text-zinc-600">Amber box = slave viewport</span>
+        <span class="text-xs text-zinc-600">Amber box = display viewport</span>
       </div>
 
-      <!-- Preview panel: relative container so keyline can sit fixed at centre -->
+      <!-- Preview panel: relative container so the keyline can be centred absolutely -->
       <div class="flex-1 overflow-hidden relative">
 
-        <!-- Keyline — centred vertically in this panel, sits above scrolling text -->
+        <!-- Keyline — centred vertically in this panel, sits above the scrolling text -->
         <div id="keyline" style="display:none;"></div>
 
-        <!-- Edge fades so text softly disappears at top/bottom -->
+        <!-- Edge fades so text softly disappears at top/bottom of the preview -->
         <div class="absolute top-0 left-0 right-0 h-14 pointer-events-none z-10" style="background:linear-gradient(to bottom,#0f0f11 0%,transparent 100%);"></div>
         <div class="absolute bottom-0 left-0 right-0 h-14 pointer-events-none z-10" style="background:linear-gradient(to top,#0f0f11 0%,transparent 100%);"></div>
 
-        <!-- Scrollable text — auto-scrolled by JS to follow slave -->
+        <!-- Scrollable text — auto-scrolled by controller.js to mirror the display -->
         <div id="preview-scroll" class="h-full overflow-y-auto">
           <div id="script-preview" class="max-w-2xl mx-auto">
             <p class="text-zinc-600 italic">Load a script to see the preview…</p>
@@ -203,6 +207,6 @@
   </div>
 
   <script src="/md.js"></script>
-  <script src="/master.js"></script>
+  <script src="/controller.js"></script>
 </body>
 </html>

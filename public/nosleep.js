@@ -1,13 +1,27 @@
 /*!
- * NoSleep.js - Keep the screen awake using a hidden video loop.
- * Minimal self-hosted version (no CDN dependency).
+ * NoSleep.js — Keep the screen awake using a hidden video loop.
+ *
+ * This is a minimal self-hosted build with no CDN dependency.
  * Based on NoSleep.js by Rich Tibbett (MIT License).
+ *
+ * How it works:
+ *   Browsers require a user gesture before allowing video autoplay. Once that
+ *   gesture has been received (e.g. the "Begin Prompting" button tap), we create
+ *   a tiny hidden <video> element that loops silently. This prevents the OS from
+ *   dimming or locking the screen during a prompting session.
+ *
+ * When to use this vs the native Wake Lock API:
+ *   The Screen Wake Lock API (navigator.wakeLock) is now supported in Chrome 84+,
+ *   Safari 16.4+, and Firefox 126+ on both iOS and Android. display.js tries the
+ *   native API first and only falls back to this class when it is unavailable or
+ *   when the request is denied (e.g. low-power mode on some devices).
  */
 (function (global) {
   'use strict';
 
-  // Tiny 1-second silent MP4 video as a base64 data URI
-  // This is the classic NoSleep.js approach for iOS Safari
+  // Tiny 1-second silent MP4 video as a base64 data URI.
+  // The looping video keeps the media session active, which prevents sleep
+  // on browsers that don't yet support the native Wake Lock API.
   const SILENT_VIDEO_SRC =
     'data:video/mp4;base64,' +
     'AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAAIZnJlZQAAAs1tZGF0AAAC' +
@@ -31,7 +45,7 @@
   class NoSleep {
     constructor() {
       this._enabled = false;
-      this._video = null;
+      this._video   = null;
     }
 
     get enabled() {
@@ -41,7 +55,10 @@
     enable() {
       if (this._enabled) return;
 
-      // Create a tiny hidden video element
+      // Create a 1×1 invisible video element and append it to the document.
+      // The `playsinline` attribute is required on iOS to prevent the video
+      // from opening in fullscreen. `muted` is required for autoplay to work
+      // without a sound permission prompt on all platforms.
       const video = document.createElement('video');
       video.setAttribute('playsinline', '');
       video.setAttribute('muted', '');
@@ -49,7 +66,7 @@
       video.style.cssText = 'position:fixed;top:-1px;left:-1px;width:1px;height:1px;opacity:0;pointer-events:none;';
 
       const source = document.createElement('source');
-      source.src = SILENT_VIDEO_SRC;
+      source.src  = SILENT_VIDEO_SRC;
       source.type = 'video/mp4';
       video.appendChild(source);
 
@@ -78,10 +95,11 @@
     }
   }
 
-  // Export
+  // Export for CommonJS (Node/bundlers) or as a global browser variable
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = NoSleep;
   } else {
     global.NoSleep = NoSleep;
   }
+
 })(typeof window !== 'undefined' ? window : this);
