@@ -19,11 +19,11 @@ This project is different. It runs entirely on **Cloudflare's edge** — your sc
 The magic is powered by two Cloudflare primitives:
 
 ```
-┌──────────────────────┐      WebSocket (WSS)      ┌──────────────────────┐
-│  Controller (Laptop) │ ◄───────────────────────► │  Cloudflare Worker   │
-│     index.html       │                            │  + Durable Object    │
-└──────────────────────┘                            │  (TeleprompterSession│
-                                                    └──────────┬───────────┘
+┌──────────────────────┐      WebSocket (WSS)      ┌────────────────────────┐
+│  Controller (Laptop) │ ◄───────────────────────► │  Cloudflare Worker     │
+│     index.html       │                           │  + Durable Object      │
+└──────────────────────┘                           │  (TeleprompterSession) │
+                                                   └──────────┬─────────────┘
 ┌──────────────────────┐      WebSocket (WSS)                 │
 │  Display (Phone/Tab) │ ◄────────────────────────────────────┘
 │    display.html      │
