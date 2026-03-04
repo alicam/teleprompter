@@ -2,7 +2,7 @@
 
 A real-time, zero-latency teleprompter that turns your iPhone into a professional prompting display — controlled from any laptop or desktop browser. No app install. No subscription. Just deploy once to Cloudflare and it's yours forever.
 
-> 🖼️ *Screenshot coming soon*
+![Teleprompter screenshot](docs/screenshot.png)
 
 ---
 
