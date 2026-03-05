@@ -14,6 +14,13 @@
 (function () {
   'use strict';
 
+  // ── Session hash ──────────────────────────────────────────────────────────
+  //
+  // Read the session hash from the URL path: domain.com/{hash}/display
+  // This ensures the display connects to its own isolated Durable Object
+  // rather than a shared global session.
+  const SESSION = location.pathname.split('/').filter(Boolean)[0] || 'global';
+
   // ── DOM refs ──────────────────────────────────────────────────────────────
   const startOverlay  = document.getElementById('start-overlay');
   const startBtn      = document.getElementById('start-btn');
@@ -79,7 +86,7 @@
 
   function connect() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    ws = new WebSocket(`${proto}://${location.host}/ws?role=display`);
+    ws = new WebSocket(`${proto}://${location.host}/${SESSION}/ws?role=display`);
 
     ws.addEventListener('open', () => {
       clearTimeout(reconnectTimer);

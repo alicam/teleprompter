@@ -8,8 +8,8 @@
  *   messages between every connected controller and display in real time.
  *
  * WebSocket roles:
- *   controller  (/ws?role=controller)  — laptop/desktop master control UI
- *   display     (/ws?role=display)     — phone/tablet teleprompter display
+ *   controller  (/{hash}/ws?role=controller)  — laptop/desktop master control UI
+ *   display     (/{hash}/ws?role=display)      — phone/tablet teleprompter display
  *
  * ── Message protocol ─────────────────────────────────────────────────────────
  *
@@ -47,35 +47,71 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    // WebSocket upgrade → route to the Durable Object
-    if (request.headers.get('Upgrade') === 'websocket') {
-      const id  = env.TELEPROMPTER_SESSION.idFromName('global');
-      const obj = env.TELEPROMPTER_SESSION.get(id);
-      return obj.fetch(request);
+    // ── Root: serve the controller page directly ─────────────────────────────
+    //
+    // Session management (hash generation and persistence) is handled entirely
+    // client-side via localStorage in controller.js. This is more reliable than
+    // a server-set cookie, which can be:
+    //   - stripped by Cloudflare edge caches on redirect responses
+    //   - blocked by browser privacy settings (Safari ITP, Firefox strict mode)
+    //   - lost when the browser is in Private/Incognito mode
+    //
+    // localStorage persists indefinitely until explicitly cleared, works across
+    // tab closes and browser restarts, and is strictly same-origin.
+    if (url.pathname === '/') {
+      return env.ASSETS.fetch(new Request(new URL('/', request.url).toString(), request));
     }
 
-    // Mobile UA detection: redirect phones/tablets visiting root to the display view.
-    // Covers Android (Mobi/Android) and iOS (iPhone/iPad/iPod).
-    if (url.pathname === '/') {
+    // ── Session routes: /{8hex}  /{8hex}/display  /{8hex}/ws ─────────────────
+    //
+    // Each 8-char hex hash maps to a unique Durable Object instance, giving
+    // every user a completely isolated teleprompter session.
+    const sessionMatch = /^\/([0-9a-f]{8})(\/display|\/ws)?$/i.exec(url.pathname);
+    if (sessionMatch) {
+      const session = sessionMatch[1];
+      const sub     = sessionMatch[2] || '';
+
+      // WebSocket upgrade → route to the session-specific Durable Object
+      if (sub === '/ws') {
+        if (request.headers.get('Upgrade') !== 'websocket') {
+          return new Response('Expected WebSocket upgrade', { status: 426 });
+        }
+        const id  = env.TELEPROMPTER_SESSION.idFromName(session);
+        const obj = env.TELEPROMPTER_SESSION.get(id);
+        return obj.fetch(request);
+      }
+
+      // /{hash}/display → serve the display page.
+      //
+      // IMPORTANT: request the clean URL (/display, not /display.html).
+      // Cloudflare Workers Assets has "HTML handling" enabled by default — if
+      // you ask for /display.html it issues a 301 redirect to /display. That
+      // redirect response is returned to the browser, which follows it to
+      // domain.com/display (losing the hash), triggering the legacy redirect
+      // and breaking the whole session chain. Requesting the clean URL tells
+      // ASSETS to serve display.html directly with no redirect.
+      if (sub === '/display') {
+        const rewritten = new URL('/display', request.url);
+        return env.ASSETS.fetch(new Request(rewritten.toString(), request));
+      }
+
+      // /{hash} → controller page; redirect mobile visitors to the display.
+      // Same clean-URL rule applies: request / not /index.html.
       const ua = request.headers.get('User-Agent') || '';
       if (/Mobi|Android|iPhone|iPad|iPod/i.test(ua)) {
-        return Response.redirect(new URL('/display', request.url).toString(), 302);
+        return Response.redirect(new URL(`/${session}/display`, request.url).toString(), 302);
       }
+      return env.ASSETS.fetch(new Request(new URL('/', request.url).toString(), request));
     }
 
-    // Backward-compat: redirect the old /slave URL to /display
-    if (url.pathname === '/slave') {
-      return Response.redirect(new URL('/display', request.url).toString(), 302);
+    // ── Legacy redirects ──────────────────────────────────────────────────────
+    if (url.pathname === '/slave' || url.pathname === '/display') {
+      // Legacy paths — redirect to root so the controller can load and restore
+      // the session from localStorage.
+      return Response.redirect(new URL('/', request.url).toString(), 302);
     }
 
-    // Clean URL routing: /display → /display.html
-    if (url.pathname === '/display') {
-      const rewritten = new URL(request.url);
-      rewritten.pathname = '/display.html';
-      return env.ASSETS.fetch(new Request(rewritten.toString(), request));
-    }
-
-    // All other requests → serve static assets from ./public
+    // ── Static assets (JS, CSS, images, etc.) ─────────────────────────────────
     return env.ASSETS.fetch(request);
   },
 };
@@ -86,9 +122,9 @@ export default {
  * TeleprompterSession holds the authoritative teleprompter state and brokers
  * real-time messages between all connected controller and display clients.
  *
- * A single named instance ('global') is used, meaning all visitors share one
- * session. For multi-room support, generate unique idFromName() keys per room
- * and pass the room ID through the URL.
+ * Each unique session hash gets its own DO instance via idFromName(hash), so
+ * no two users can interfere with each other's sessions. The hash is generated
+ * client-side on first load and persisted in localStorage (see controller.js).
  */
 export class TeleprompterSession {
   constructor(state, env) {

@@ -5,8 +5,11 @@
 // playback commands, and renders a live preview of the display device's viewport.
 //
 // Key responsibilities:
+//   - Read the session hash from the URL path (/{hash}) and use it for all
+//     WebSocket and display-link URLs, keeping each user's session isolated
 //   - Establish and maintain a WebSocket connection with auto-reconnect and
 //     a heartbeat to detect dead ("zombie") connections early
+//   - Render a QR code and session code so the display device can join easily
 //   - Send playback commands (play, pause, reset, speed, seek) to the server
 //   - Render the Markdown script in a live preview panel
 //   - Draw the amber keyline overlay, sized to match the lines currently visible
@@ -15,22 +18,62 @@
 (function () {
   'use strict';
 
+  // ── Session hash ──────────────────────────────────────────────────────────
+  //
+  // The session hash is a random 8-char hex string that scopes this controller
+  // and its paired display to their own private Durable Object instance.
+  //
+  // Priority order for resolving the hash:
+  //   1. localStorage ('tp_session') — persists indefinitely across tab closes
+  //      and browser restarts; set the first time a session is created here.
+  //   2. URL path segment — covers the case where someone navigates directly
+  //      to domain.com/{hash} (e.g. from a bookmark or a shared link).
+  //   3. Generate new — first ever visit; stored to localStorage immediately.
+  //
+  // localStorage is used instead of a server-set cookie because cookies on
+  // redirect responses can be stripped by Cloudflare edge caches and are
+  // blocked by Safari ITP and Firefox strict-mode privacy settings.
+  let SESSION = '';
+  const lsSession = localStorage.getItem('tp_session');
+  if (lsSession && /^[0-9a-f]{8}$/i.test(lsSession)) {
+    // Returning visit — restore the saved session
+    SESSION = lsSession;
+  } else {
+    // First visit: check URL first (direct link to /{hash}), then generate new
+    const urlSegment = location.pathname.split('/').filter(Boolean)[0] || '';
+    SESSION = /^[0-9a-f]{8}$/i.test(urlSegment)
+      ? urlSegment
+      : crypto.randomUUID().replace(/-/g, '').slice(0, 8);
+    localStorage.setItem('tp_session', SESSION);
+  }
+  // Keep the URL in sync with the active session (may differ from server path)
+  if (location.pathname !== `/${SESSION}`) {
+    history.replaceState(null, '', `/${SESSION}`);
+  }
+
   // ── DOM refs ──────────────────────────────────────────────────────────────
-  const scriptInput   = document.getElementById('script-input');
-  const loadBtn       = document.getElementById('load-btn');
-  const playBtn       = document.getElementById('play-btn');
-  const pauseBtn      = document.getElementById('pause-btn');
-  const resetBtn      = document.getElementById('reset-btn');
-  const speedSlider   = document.getElementById('speed-slider');
-  const speedLabel    = document.getElementById('speed-label');
-  const connDot       = document.getElementById('conn-dot');
-  const connLabel     = document.getElementById('conn-label');
-  const displayDot    = document.getElementById('display-dot');
-  const displayStatus = document.getElementById('display-status');
+  const scriptInput    = document.getElementById('script-input');
+  const loadBtn        = document.getElementById('load-btn');
+  const playBtn        = document.getElementById('play-btn');
+  const pauseBtn       = document.getElementById('pause-btn');
+  const resetBtn       = document.getElementById('reset-btn');
+  const speedSlider    = document.getElementById('speed-slider');
+  const speedLabel     = document.getElementById('speed-label');
+  const connDot        = document.getElementById('conn-dot');
+  const connLabel      = document.getElementById('conn-label');
+  const displayQrPanel     = document.getElementById('display-qr-panel');
+  const displayStatusPanel = document.getElementById('display-status-panel');
+  const qrContainer    = document.getElementById('qr-code');
+  const sessionCodeEl  = document.getElementById('session-code');
+  const copyLinkBtn    = document.getElementById('copy-link-btn');
+  const showQrBtn      = document.getElementById('show-qr-btn');
+  const displayLink    = document.getElementById('display-link');
+  const displayDot     = document.getElementById('display-dot');
+  const displayStatus  = document.getElementById('display-status');
   const displayProgress = document.getElementById('display-progress');
-  const preview       = document.getElementById('script-preview');
-  const keyline       = document.getElementById('keyline');
-  const previewScroll = document.getElementById('preview-scroll');
+  const preview        = document.getElementById('script-preview');
+  const keyline        = document.getElementById('keyline');
+  const previewScroll  = document.getElementById('preview-scroll');
 
   // ── State ─────────────────────────────────────────────────────────────────
   let ws             = null;
@@ -83,7 +126,7 @@
   // ── WebSocket ─────────────────────────────────────────────────────────────
   function connect() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    ws = new WebSocket(`${proto}://${location.host}/ws?role=controller`);
+    ws = new WebSocket(`${proto}://${location.host}/${SESSION}/ws?role=controller`);
 
     ws.addEventListener('open', () => {
       setConnStatus('connected');
@@ -166,10 +209,13 @@
   // ── Display status indicator ──────────────────────────────────────────────
   function updateDisplayIndicator(connected) {
     if (connected) {
-      displayDot.className    = 'w-2 h-2 rounded-full bg-emerald-400 shrink-0';
+      displayDot.className      = 'w-2 h-2 rounded-full bg-emerald-400 shrink-0';
       displayStatus.textContent = 'Display connected';
+      // Swap to the compact status panel; hide the QR panel
+      displayQrPanel.classList.add('hidden');
+      displayStatusPanel.classList.remove('hidden');
     } else {
-      displayDot.className    = 'w-2 h-2 rounded-full bg-zinc-600 shrink-0';
+      displayDot.className      = 'w-2 h-2 rounded-full bg-zinc-600 shrink-0';
       displayStatus.textContent = 'No display connected';
       displayProgress.classList.add('hidden');
       keyline.style.display = 'none';
@@ -177,6 +223,9 @@
       preview.style.maxWidth    = '';
       preview.style.marginLeft  = '';
       preview.style.marginRight = '';
+      // Swap back to the QR panel
+      displayStatusPanel.classList.add('hidden');
+      displayQrPanel.classList.remove('hidden');
     }
   }
 
@@ -304,8 +353,8 @@
   // silently vanish into a dead socket. They are re-enabled on reconnect.
   function setControlsDisabled(disabled) {
     [loadBtn, playBtn, pauseBtn, resetBtn, speedSlider].forEach((el) => {
-      el.disabled           = disabled;
-      el.style.opacity      = disabled ? '0.4' : '';
+      el.disabled            = disabled;
+      el.style.opacity       = disabled ? '0.4' : '';
       el.style.pointerEvents = disabled ? 'none' : '';
     });
   }
@@ -405,6 +454,43 @@
   });
 
   // ── Init ──────────────────────────────────────────────────────────────────
+
+  // Update the "Open Display ↗" header link with the session-scoped URL
+  const displayPath = `/${SESSION}/display`;
+  displayLink.href  = displayPath;
+
+  // Build the full display URL used by the QR code and copy-link button
+  const displayUrl = `${location.origin}/${SESSION}/display`;
+
+  // Render the QR code — amber on dark to match the UI palette
+  // QRCode is provided by qrcodejs loaded before this script in index.html
+  new QRCode(qrContainer, {
+    text:         displayUrl,
+    width:        148,
+    height:       148,
+    colorDark:    '#ffffff',  // white
+    colorLight:   '#0f0f11',  // surface background colour
+    correctLevel: QRCode.CorrectLevel.M,
+  });
+
+  // Show session code as "F4D0 041A" — uppercase, chunked for readability
+  sessionCodeEl.textContent =
+    SESSION.toUpperCase().slice(0, 4) + '\u2009' + SESSION.toUpperCase().slice(4);
+
+  // Copy display URL to clipboard
+  copyLinkBtn.addEventListener('click', () => {
+    navigator.clipboard?.writeText(displayUrl).then(() => {
+      copyLinkBtn.textContent = 'Copied!';
+      setTimeout(() => { copyLinkBtn.textContent = 'Copy link'; }, 2000);
+    });
+  });
+
+  // "Show QR" button re-surfaces the QR panel when display is already connected
+  showQrBtn.addEventListener('click', () => {
+    displayStatusPanel.classList.add('hidden');
+    displayQrPanel.classList.remove('hidden');
+  });
+
   setControlsDisabled(true); // disabled until the WebSocket connects
   connect();
 
