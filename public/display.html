@@ -43,6 +43,7 @@
 
     /* Script text — fluid font size scales with screen width */
     #script-text {
+      transform: scaleX(-1); /* Mirror horizontally for teleprompter glass/reflection */
       font-family: 'Georgia', 'Times New Roman', serif;
       font-size: clamp(1.5rem, 5vw, 2.25rem);
       line-height: 1.8;
