@@ -14,7 +14,7 @@ A live demo is available at **[https://teleprompter.ali.cam/](https://teleprompt
 
 ## ✨ Why This Exists
 
-Professional teleprompters cost thousands of dollars and require dedicated hardware. Teleprompter apps are clunky, require subscriptions, and don't give you precise remote control.
+Professional teleprompters cost many hundreds of dollars and require dedicated hardware. Teleprompter apps are clunky, require subscriptions, and don't give you precise remote control.
 
 This project is different. It runs entirely on **Cloudflare's edge** — your script is loaded on a laptop, and your phone acts as the display. Both sides stay in perfect sync over a persistent WebSocket connection, with sub-100ms latency anywhere in the world.
 
@@ -25,15 +25,15 @@ This project is different. It runs entirely on **Cloudflare's edge** — your sc
 The magic is powered by two Cloudflare primitives:
 
 ```
-┌──────────────────────┐      WebSocket (WSS)      ┌────────────────────────┐
-│  Controller (Laptop) │ ◄───────────────────────► │  Cloudflare Worker     │
-│  domain/{hash}       │                           │  + Durable Object      │
-└──────────────────────┘                           │  (TeleprompterSession) │
-                                                   └──────────┬─────────────┘
-┌──────────────────────┐      WebSocket (WSS)                 │
-│  Display (Phone/Tab) │ ◄────────────────────────────────────┘
-│  domain/{hash}/display│
-└──────────────────────┘
+┌────────────────────────┐      WebSocket (WSS)      ┌────────────────────────┐
+│  Controller (Laptop)   │ ◄───────────────────────► │  Cloudflare Worker     │
+│  yourdomain.com/{hash} │                           │  + Durable Object      │
+└────────────────────────┘                           │  (TeleprompterSession) │
+                                                     └──────────┬─────────────┘
+┌────────────────────────────────┐      WebSocket (WSS)         │
+│  Display (Phone/Tab)           │ ◄────────────────────────────┘
+│  yourdomain.com/{hash}/display │
+└────────────────────────────────┘
 ```
 
 - **[Cloudflare Workers](https://workers.cloudflare.com/)** — serves the static UI, handles WebSocket upgrades, and manages session routing at the edge, globally.
@@ -49,21 +49,21 @@ There is **no database**, **no server to manage**, and **no cold starts**. The D
 Every visitor gets a **private, persistent session** identified by an 8-character hex hash in the URL:
 
 ```
-domain.com/f4d0041a          → your controller (laptop/desktop)
-domain.com/f4d0041a/display  → your display (phone/tablet)
+yourdomain.com/f4d0041a          → your controller (laptop/desktop)
+yourdomain.com/f4d0041a/display  → your display (phone/tablet)
 ```
 
 **How the session hash is assigned:**
 
-1. First visit to `domain.com/` — the controller page loads and `controller.js` generates a random 8-char hex hash, stores it in **`localStorage`** under the key `tp_session`, then updates the URL to `domain.com/f4d0041a` via `history.replaceState`.
-2. Every subsequent visit to `domain.com/` — the page loads, `controller.js` reads `localStorage`, and immediately restores the same hash and URL. Your session is stable across days, weeks, and months.
+1. First visit to `yourdomain.com/` — the controller page loads and `controller.js` generates a random 8-char hex hash, stores it in **`localStorage`** under the key `tp_session`, then updates the URL to `yourdomain.com/f4d0041a` via `history.replaceState`.
+2. Every subsequent visit to `yourdomain.com/` — the page loads, `controller.js` reads `localStorage`, and immediately restores the same hash and URL. Your session is stable across days, weeks, and months.
 
 `localStorage` is used instead of a server-set cookie because cookies on HTTP redirect responses can be stripped by Cloudflare's edge cache, and are blocked by Safari ITP and Firefox strict-mode privacy settings. `localStorage` persists indefinitely until the user explicitly clears site data, and is strictly same-origin.
 
 **Why this matters for the PWA workflow:**
-- First visit → scan the QR code on the controller → phone navigates to `domain.com/f4d0041a/display`
+- First visit → scan the QR code on the controller → phone navigates to `yourdomain.com/f4d0041a/display`
 - Save that URL to the home screen as a PWA (for true full-screen on iOS)
-- Come back a month later: visit `domain.com/` on your laptop → `localStorage` restores `f4d0041a` → phone PWA still points at `domain.com/f4d0041a/display` → **everything just works, no re-pairing needed**
+- Come back a month later: visit `yourdomain.com/` on your laptop → `localStorage` restores `f4d0041a` → phone PWA still points at `yourdomain.com/f4d0041a/display` → **everything just works, no re-pairing needed**
 
 ---
 
@@ -90,7 +90,7 @@ domain.com/f4d0041a/display  → your display (phone/tablet)
 
 ### Display (Phone / Tablet)
 - **QR-connected** — scanning the controller QR code navigates directly to the right session URL; save it as a home screen PWA for persistent full-screen access
-- **Auto-detected** — Android and iOS devices visiting `domain.com/{hash}` (the controller URL, e.g. from a shared link) are automatically redirected to the display view
+- **Auto-detected** — Android and iOS devices visiting `yourdomain.com/{hash}` (the controller URL, e.g. from a shared link) are automatically redirected to the display view
 - **Full-screen black display** — high-contrast white text on black, optimised for on-camera reading
 - **Large, responsive text** — fluid font sizing from 1.5rem to 2.25rem based on screen width
 - **Screen wake lock** — keeps the display on while prompting using the native Wake Lock API (Chrome 84+, Safari 16.4+, Firefox 126+), with a NoSleep.js video-loop fallback for older browsers
@@ -143,8 +143,8 @@ Wrangler will print your Worker URL (e.g. `https://teleprompter.yourname.workers
 
 ### First-time setup
 
-1. **Open `domain.com` on your laptop** — the controller page loads, generates your session hash, stores it in `localStorage`, and updates the URL to `domain.com/f4d0041a`
-2. **Scan the QR code** shown in the sidebar on your phone — it navigates to `domain.com/f4d0041a/display`
+1. **Open `yourdomain.com` on your laptop** — the controller page loads, generates your session hash, stores it in `localStorage`, and updates the URL to `yourdomain.com/f4d0041a`
+2. **Scan the QR code** shown in the sidebar on your phone — it navigates to `yourdomain.com/f4d0041a/display`
 3. On the phone, tap **Begin Prompting** (this acquires the wake lock and connects the WebSocket)
 4. **Save the display to your home screen** for a permanently full-screen PWA:
    - **iOS Safari:** tap **Share → Add to Home Screen**
@@ -154,7 +154,7 @@ Wrangler will print your Worker URL (e.g. `https://teleprompter.yourname.workers
 
 ### Every subsequent session
 
-- Visit `domain.com` on your laptop → `localStorage` restores `f4d0041a` → URL updates to `domain.com/f4d0041a` instantly → same QR code, same session
+- Visit `yourdomain.com` on your laptop → `localStorage` restores `f4d0041a` → URL updates to `yourdomain.com/f4d0041a` instantly → same QR code, same session
 - Open the home screen PWA on your phone → same display URL → connects to the same session automatically
 
 > **No re-pairing, no QR scanning, no code entry** — `localStorage` and the saved PWA stay in sync indefinitely.
