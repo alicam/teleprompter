@@ -200,7 +200,6 @@ See the top of `src/worker.js` for the full message type reference.
 
 ## 🔧 Customisation Ideas
 
-- **Script persistence** — use the DO's built-in storage API (`this.state.storage.put('script', text)`) to persist the loaded script across Durable Object cold starts, so it survives a gap between sessions
 - **Font / colour themes** — edit the CSS variables in `display.html` and `index.html`
 - **Mirror mode** — add a CSS `scaleX(-1)` transform to `#script-text` for use with a physical beam-splitter rig
 - **Speed presets** — add preset buttons (Slow / Medium / Fast) that snap the slider to common values
